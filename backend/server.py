@@ -422,6 +422,188 @@ pf = vbt.Portfolio.from_signals(
     fees=0.001  # 0.1% trading fee
 )""",
             "parameters": {"rsi_period": 14, "oversold": 30, "overbought": 70}
+        },
+        {
+            "name": "PPP VishvaAlgo MTF Scalper",
+            "description": "Advanced multi-timeframe strategy with EMA baseline, SuperTrend, EWO, StochRSI, and ATR regime filter",
+            "code": """# PPP VishvaAlgo MTF Scalper Strategy (VectorBT Version)
+import talib
+
+# Strategy Parameters
+ema_len = 200          # EMA Baseline
+st_period = 10         # SuperTrend ATR period
+st_factor = 2.0        # SuperTrend ATR multiplier
+ewo_fast = 5           # EWO Fast EMA
+ewo_slow = 35          # EWO Slow EMA
+rsi_len = 14           # StochRSI: RSI Length
+stoch_len = 14         # StochRSI: Stoch Length
+k_smooth = 3           # StochRSI: %K Smoothing
+d_smooth = 3           # StochRSI: %D Smoothing
+k_buy_th = 30.0        # StochRSI: Buy zone K<
+k_sell_th = 70.0       # StochRSI: Sell zone K>
+atr_reg_len = 14       # ATR regime filter length
+min_atr_pct = 0.10     # Min ATR %
+max_atr_pct = 3.00     # Max ATR %
+
+# Calculate indicators
+ema_base = data['close'].ewm(span=ema_len).mean()
+
+# SuperTrend calculation
+atr = pd.Series(talib.ATR(data['high'].values, data['low'].values, data['close'].values, timeperiod=st_period), index=data.index)
+hl2 = (data['high'] + data['low']) / 2
+upper_band = hl2 + (st_factor * atr)
+lower_band = hl2 - (st_factor * atr)
+
+# SuperTrend logic
+st_trend = pd.Series(index=data.index, dtype=float)
+st_direction = pd.Series(index=data.index, dtype=int)
+
+for i in range(len(data)):
+    if i == 0:
+        st_trend.iloc[i] = lower_band.iloc[i]
+        st_direction.iloc[i] = 1
+    else:
+        if data['close'].iloc[i] <= st_trend.iloc[i-1]:
+            st_trend.iloc[i] = upper_band.iloc[i]
+            st_direction.iloc[i] = -1
+        else:
+            st_trend.iloc[i] = lower_band.iloc[i]
+            st_direction.iloc[i] = 1
+
+ut_long = st_direction == 1
+ut_short = st_direction == -1
+
+# EWO (Elliott Wave Oscillator)
+ewo_fast_ma = data['close'].ewm(span=ewo_fast).mean()
+ewo_slow_ma = data['close'].ewm(span=ewo_slow).mean()
+ewo = ewo_fast_ma - ewo_slow_ma
+
+# StochRSI
+rsi = pd.Series(talib.RSI(data['close'].values, timeperiod=rsi_len), index=data.index)
+rsi_low = rsi.rolling(window=stoch_len).min()
+rsi_high = rsi.rolling(window=stoch_len).max()
+stoch_rsi = ((rsi - rsi_low) / (rsi_high - rsi_low)) * 100
+stoch_rsi = stoch_rsi.fillna(50)
+k = stoch_rsi.rolling(window=k_smooth).mean()
+d = k.rolling(window=d_smooth).mean()
+
+# Regime filter (ATR %)
+atr_reg = pd.Series(talib.ATR(data['high'].values, data['low'].values, data['close'].values, timeperiod=atr_reg_len), index=data.index)
+atr_pct = (atr_reg / data['close']) * 100.0
+regime_ok = (atr_pct >= min_atr_pct) & (atr_pct <= max_atr_pct)
+
+# Signal conditions
+k_cross_up = (k > d) & (k.shift(1) <= d.shift(1))
+k_cross_down = (k < d) & (k.shift(1) >= d.shift(1))
+
+# Generate signals
+long_signal = (
+    (data['close'] > ema_base) & 
+    ut_long & 
+    (ewo > 0) & 
+    k_cross_up & 
+    (k < k_buy_th) & 
+    regime_ok
+)
+
+short_signal = (
+    (data['close'] < ema_base) & 
+    ut_short & 
+    (ewo < 0) & 
+    k_cross_down & 
+    (k > k_sell_th) & 
+    regime_ok
+)
+
+# Create portfolio with stop loss and take profit
+pf = vbt.Portfolio.from_signals(
+    data['close'], 
+    long_signal, 
+    short_signal, 
+    init_cash=initial_capital,
+    fees=0.0004,  # 0.04% commission
+    sl_stop=0.005,  # 0.5% stop loss
+    tp_stop=0.008   # 0.8% take profit
+)""",
+            "parameters": {
+                "ema_len": 200, "st_period": 10, "st_factor": 2.0,
+                "ewo_fast": 5, "ewo_slow": 35, "k_buy_th": 30.0, "k_sell_th": 70.0
+            }
+        },
+        {
+            "name": "No Brain + ORB Combo",
+            "description": "Donchian Channel breakout with CCI filter plus Opening Range Breakout strategy",
+            "code": """# No Brain + ORB Combo Strategy (VectorBT Version)
+import talib
+
+# Strategy Parameters
+donch_len = 20         # Donchian Channel length
+cci_len = 20           # CCI length
+cci_long_threshold = 0 # CCI long threshold
+cci_short_threshold = 0 # CCI short threshold
+orb_hours = 0.5        # Opening Range hours (0.5 = 30 minutes)
+orb_trade_hours = 2.0  # ORB trading window hours
+use_close_break = True # Require close beyond Donchian
+
+# Calculate Donchian Channel
+donch_upper = data['high'].rolling(window=donch_len).max()
+donch_lower = data['low'].rolling(window=donch_len).min()
+donch_upper_prev = donch_upper.shift(1)
+donch_lower_prev = donch_lower.shift(1)
+
+# Calculate CCI
+cci = pd.Series(talib.CCI(data['high'].values, data['low'].values, data['close'].values, timeperiod=cci_len), index=data.index)
+cci_long_ok = cci > cci_long_threshold
+cci_short_ok = cci < cci_short_threshold
+
+# No Brain signals (Donchian + CCI)
+if use_close_break:
+    long_break = data['close'] > donch_upper_prev
+    short_break = data['close'] < donch_lower_prev
+else:
+    long_break = data['high'] > donch_upper_prev
+    short_break = data['low'] < donch_lower_prev
+
+nb_long = long_break & cci_long_ok
+nb_short = short_break & cci_short_ok
+
+# Opening Range Breakout (ORB) Logic
+# Simplified ORB: Use first portion of data as opening range
+orb_periods = int(len(data) * (orb_hours / 24))  # Convert hours to periods
+trade_periods = int(len(data) * (orb_trade_hours / 24))
+
+# Calculate opening range for each day (simplified)
+orb_high = data['high'].rolling(window=orb_periods, min_periods=1).max()
+orb_low = data['low'].rolling(window=orb_periods, min_periods=1).min()
+
+# ORB signals with 1-tick buffer
+tick_size = data['close'].diff().abs().median() * 0.1  # Estimate tick size
+orb_long_trigger = orb_high + tick_size
+orb_short_trigger = orb_low - tick_size
+
+# ORB breakout signals
+orb_long = data['close'] > orb_long_trigger
+orb_short = data['close'] < orb_short_trigger
+
+# Combine signals (ORB has priority when both are active)
+# Simple combination: OR logic for demonstration
+long_signal = nb_long | orb_long
+short_signal = nb_short | orb_short
+
+# Create portfolio
+pf = vbt.Portfolio.from_signals(
+    data['close'], 
+    long_signal, 
+    short_signal, 
+    init_cash=initial_capital,
+    fees=0.0004,  # 0.04% commission
+    sl_stop=0.005,  # 0.5% stop loss
+    tp_stop=0.005   # 0.5% take profit
+)""",
+            "parameters": {
+                "donch_len": 20, "cci_len": 20, "orb_hours": 0.5,
+                "cci_long_threshold": 0, "cci_short_threshold": 0
+            }
         }
     ]
     return {"templates": templates}
