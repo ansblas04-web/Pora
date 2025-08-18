@@ -11,10 +11,15 @@ import uuid
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
-import ccxt
-import vectorbt as vbt
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+try:
+    import ccxt
+    import vectorbt as vbt
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    DEPENDENCIES_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Some dependencies not available: {e}")
+    DEPENDENCIES_AVAILABLE = False
 import json
 
 ROOT_DIR = Path(__file__).parent
