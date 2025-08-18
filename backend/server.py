@@ -326,13 +326,17 @@ async def root():
 async def get_available_symbols():
     """Get list of available crypto trading pairs"""
     try:
-        markets = exchange.load_markets()
-        usdt_pairs = [symbol for symbol in markets.keys() if symbol.endswith('/USDT') and markets[symbol]['active']]
-        # Convert to Binance format (BTCUSDT instead of BTC/USDT)
-        symbols = [pair.replace('/', '') for pair in usdt_pairs[:50]]  # Limit to first 50
-        return {"symbols": sorted(symbols)}
+        if DEPENDENCIES_AVAILABLE:
+            markets = exchange.load_markets()
+            usdt_pairs = [symbol for symbol in markets.keys() if symbol.endswith('/USDT') and markets[symbol]['active']]
+            # Convert to Binance format (BTCUSDT instead of BTC/USDT)
+            symbols = [pair.replace('/', '') for pair in usdt_pairs[:50]]  # Limit to first 50
+            return {"symbols": sorted(symbols)}
     except Exception as e:
-        return {"symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOTUSDT"]}
+        print(f"Binance markets failed: {str(e)}. Using default symbols.")
+    
+    # Fallback to popular crypto pairs
+    return {"symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOTUSDT", "LINKUSDT", "LTCUSDT", "BCHUSDT", "XLMUSDT", "EOSUSDT"]}
 
 @api_router.get("/strategy-templates")
 async def get_strategy_templates():
