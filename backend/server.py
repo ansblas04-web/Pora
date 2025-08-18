@@ -192,37 +192,95 @@ def execute_strategy(df: pd.DataFrame, strategy_code: str, initial_capital: floa
             
         pf = strategy_globals['pf']
         
-        # Calculate metrics
-        stats = pf.stats()
+        # Calculate basic metrics directly
+        returns = pf.returns()
+        total_return = (pf.value().iloc[-1] - initial_capital) / initial_capital * 100
+        
+        # Calculate Sharpe ratio manually
+        if len(returns) > 1:
+            sharpe_ratio = returns.mean() / returns.std() * np.sqrt(252) if returns.std() != 0 else 0.0
+        else:
+            sharpe_ratio = 0.0
+        
+        # Calculate max drawdown
+        cumulative_returns = (1 + returns).cumprod()
+        running_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = drawdown.min() * 100
+        
+        # Get orders (trades)
+        orders = pf.orders.records_readable
+        total_trades = len(orders) if len(orders) > 0 else 0
+        
+        # Calculate win rate
+        if total_trades > 0 and len(orders) > 0:
+            # Get trade records if available
+            try:
+                trades = pf.trades.records_readable
+                if len(trades) > 0:
+                    winning_trades = len(trades[trades['PnL'] > 0])
+                    win_rate = (winning_trades / len(trades)) * 100
+                else:
+                    win_rate = 0.0
+            except:
+                win_rate = 0.0
+        else:
+            win_rate = 0.0
+        
+        # Calculate profit factor
+        if total_trades > 0:
+            try:
+                trades = pf.trades.records_readable
+                if len(trades) > 0:
+                    profits = trades[trades['PnL'] > 0]['PnL'].sum()
+                    losses = abs(trades[trades['PnL'] < 0]['PnL'].sum())
+                    profit_factor = profits / losses if losses > 0 else profits
+                else:
+                    profit_factor = 1.0
+            except:
+                profit_factor = 1.0
+        else:
+            profit_factor = 1.0
         
         # Create chart data
         chart_data = create_chart_data(df, pf)
         
         # Get equity curve
         equity_curve = pf.value().reset_index()
+        equity_curve.columns = ['timestamp', 'value']
         equity_curve['timestamp'] = equity_curve['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         equity_curve = equity_curve.to_dict('records')
         
-        # Get trades
-        trades_df = pf.trades.records_readable
-        if len(trades_df) > 0:
-            trades_df['Entry Time'] = trades_df['Entry Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            trades_df['Exit Time'] = trades_df['Exit Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            trades = trades_df.to_dict('records')
-        else:
-            trades = []
+        # Get trades for display
+        trades_list = []
+        try:
+            trades_df = pf.trades.records_readable
+            if len(trades_df) > 0:
+                for _, trade in trades_df.iterrows():
+                    trades_list.append({
+                        'entry_time': trade['Entry Time'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(trade['Entry Time']) else 'N/A',
+                        'exit_time': trade['Exit Time'].strftime('%Y-%m-%d %H:%M:%S') if pd.notna(trade['Exit Time']) else 'N/A',
+                        'size': float(trade['Size']) if pd.notna(trade['Size']) else 0.0,
+                        'entry_price': float(trade['Entry Price']) if pd.notna(trade['Entry Price']) else 0.0,
+                        'exit_price': float(trade['Exit Price']) if pd.notna(trade['Exit Price']) else 0.0,
+                        'pnl': float(trade['PnL']) if pd.notna(trade['PnL']) else 0.0,
+                        'return': float(trade['Return [%]']) if pd.notna(trade['Return [%]']) else 0.0
+                    })
+        except Exception as e:
+            print(f"Error processing trades: {e}")
+            trades_list = []
         
         return {
-            'final_value': float(stats['End Value']),
-            'total_return': float(stats['Total Return [%]']),
-            'sharpe_ratio': float(stats['Sharpe Ratio']) if not np.isnan(stats['Sharpe Ratio']) else 0.0,
-            'max_drawdown': float(stats['Max Drawdown [%]']),
-            'win_rate': float(stats['Win Rate [%]']) if 'Win Rate [%]' in stats else 0.0,
-            'total_trades': int(stats['# Trades']),
-            'profit_factor': float(stats['Profit Factor']) if not np.isnan(stats['Profit Factor']) else 0.0,
+            'final_value': float(pf.value().iloc[-1]),
+            'total_return': float(total_return),
+            'sharpe_ratio': float(sharpe_ratio),
+            'max_drawdown': float(max_drawdown),
+            'win_rate': float(win_rate),
+            'total_trades': int(total_trades),
+            'profit_factor': float(profit_factor),
             'chart_data': chart_data,
             'equity_curve': equity_curve,
-            'trades': trades
+            'trades': trades_list
         }
         
     except Exception as e:
