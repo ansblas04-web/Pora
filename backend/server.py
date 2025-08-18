@@ -289,90 +289,65 @@ def execute_strategy(df: pd.DataFrame, strategy_code: str, initial_capital: floa
 def create_chart_data(df: pd.DataFrame, pf) -> Dict[str, Any]:
     """Create Plotly chart data for candlestick and signals"""
     try:
-        # Create candlestick chart
-        fig = make_subplots(
-            rows=2, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            subplot_titles=('Price Chart', 'Portfolio Value'),
-            row_width=[0.2, 0.7]
-        )
-        
-        # Add candlestick
-        fig.add_trace(
-            go.Candlestick(
-                x=df.index,
-                open=df['open'],
-                high=df['high'],
-                low=df['low'],
-                close=df['close'],
-                name="Price"
-            ),
-            row=1, col=1
-        )
+        # Simple chart data structure without complex plotly objects
+        chart_data = {
+            'type': 'candlestick',
+            'timestamps': df.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+            'open': df['open'].tolist(),
+            'high': df['high'].tolist(), 
+            'low': df['low'].tolist(),
+            'close': df['close'].tolist(),
+            'volume': df['volume'].tolist()
+        }
         
         # Add buy/sell signals if available
-        entries = pf.orders.records_readable
-        if len(entries) > 0:
-            buy_signals = entries[entries['Side'] == 'Buy']
-            sell_signals = entries[entries['Side'] == 'Sell']
-            
-            if len(buy_signals) > 0:
-                fig.add_trace(
-                    go.Scatter(
-                        x=buy_signals['Timestamp'],
-                        y=buy_signals['Price'],
-                        mode='markers',
-                        marker=dict(color='green', size=10, symbol='triangle-up'),
-                        name='Buy Signals'
-                    ),
-                    row=1, col=1
-                )
-            
-            if len(sell_signals) > 0:
-                fig.add_trace(
-                    go.Scatter(
-                        x=sell_signals['Timestamp'],
-                        y=sell_signals['Price'],
-                        mode='markers',
-                        marker=dict(color='red', size=10, symbol='triangle-down'),
-                        name='Sell Signals'
-                    ),
-                    row=1, col=1
-                )
+        try:
+            orders = pf.orders.records_readable
+            if len(orders) > 0:
+                buy_signals = orders[orders['Side'] == 'Buy']
+                sell_signals = orders[orders['Side'] == 'Sell']
+                
+                chart_data['buy_signals'] = {
+                    'timestamps': buy_signals['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist() if len(buy_signals) > 0 else [],
+                    'prices': buy_signals['Price'].tolist() if len(buy_signals) > 0 else []
+                }
+                
+                chart_data['sell_signals'] = {
+                    'timestamps': sell_signals['Timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist() if len(sell_signals) > 0 else [],
+                    'prices': sell_signals['Price'].tolist() if len(sell_signals) > 0 else []
+                }
+        except Exception as e:
+            print(f"Error getting signals: {e}")
+            chart_data['buy_signals'] = {'timestamps': [], 'prices': []}
+            chart_data['sell_signals'] = {'timestamps': [], 'prices': []}
         
         # Add portfolio value
-        portfolio_value = pf.value()
-        fig.add_trace(
-            go.Scatter(
-                x=portfolio_value.index,
-                y=portfolio_value.values,
-                mode='lines',
-                line=dict(color='blue'),
-                name='Portfolio Value'
-            ),
-            row=2, col=1
-        )
-        
-        fig.update_layout(
-            title="Backtest Results",
-            xaxis_title="Time",
-            yaxis_title="Price (USDT)",
-            height=800,
-            showlegend=True
-        )
-        
-        return fig.to_dict()
+        try:
+            portfolio_value = pf.value()
+            chart_data['portfolio_value'] = {
+                'timestamps': portfolio_value.index.strftime('%Y-%m-%d %H:%M:%S').tolist(),
+                'values': portfolio_value.tolist()
+            }
+        except Exception as e:
+            print(f"Error getting portfolio value: {e}")
+            chart_data['portfolio_value'] = {'timestamps': [], 'values': []}
+            
+        return chart_data
         
     except Exception as e:
-        # Return simple chart if detailed chart fails
+        print(f"Chart creation error: {e}")
+        # Return minimal fallback chart data
         return {
-            'data': [],
-            'layout': {
-                'title': 'Chart generation failed',
-                'xaxis': {'title': 'Time'},
-                'yaxis': {'title': 'Price'}
-            }
+            'type': 'candlestick',
+            'timestamps': df.index.strftime('%Y-%m-%d %H:%M:%S').tolist()[:100],  # Limit to avoid JSON issues
+            'open': df['open'].tolist()[:100],
+            'high': df['high'].tolist()[:100],
+            'low': df['low'].tolist()[:100], 
+            'close': df['close'].tolist()[:100],
+            'volume': df['volume'].tolist()[:100],
+            'buy_signals': {'timestamps': [], 'prices': []},
+            'sell_signals': {'timestamps': [], 'prices': []},
+            'portfolio_value': {'timestamps': [], 'values': []}
         }
 
 # API Routes
